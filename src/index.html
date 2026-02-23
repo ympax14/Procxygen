@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>DRPM Command Center</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .console {
+            font-family: 'Fira Code', monospace;
+            background: #020617;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #1e293b;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+
+<body class="bg-[#050b14] text-slate-300 p-8">
+    <header class="mb-10 flex justify-between items-end border-b border-white/5 pb-6">
+        <div>
+            <h1 class="text-3xl font-black italic uppercase tracking-tighter text-white">DRPM <span
+                    class="text-blue-500">Command Center</span></h1>
+            <p class="text-[10px] font-mono text-slate-500 uppercase tracking-widest mt-2">Matrix Orchestrator v1.0</p>
+        </div>
+    </header>
+
+    <div id="services-grid" class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+    </div>
+
+    <script>
+        const socket = io();
+        const services = [
+            {
+                name: "BOT-DISCORD",
+                status: "STOPPED",
+                color: "#5865F2"
+            }, {
+                name: "BACKEND-API",
+                status: "STOPPED",
+                color: "#3b82f6"
+            }
+        ];
+
+        function getLogsElement(service) {
+            return document.getElementById(`logs-${service.name}`);
+        }
+
+        function getDotElement(service) {
+            return document.getElementById(`status-${service.name}`);
+        }
+
+        function getLogLine(log) {
+            return `<div class="opacity-80"><span class="${log.type === 'ERROR' ? 'text-red-600' : 'text-green-600'}">[${log.date}]</span> ${log.content}</div>`;
+        }
+
+        services.forEach(service => {
+            const card = `
+                <div class="bg-[#0f172a] border border-white/5 rounded-3xl overflow-hidden shadow-2xl flex flex-col h-[500px]">
+                    <div class="p-6 flex justify-between items-center bg-white/5">
+                        <div class="flex items-center gap-3">
+                            <div id="status-${service.name}" class="w-4 h-4 rounded-full bg-slate-600 animate-pulse"></div>
+                            <h2 class="font-black text-xs uppercase tracking-widest" style="color: ${service.color}">${service.name}</h2>
+                        </div>
+                        <div class="gap-1">
+                            <button onclick="start('${service.name}')" class="px-4 py-1.5 bg-green-600/75 hover:scale-105 rounded-lg text-[10px] font-black uppercase transition-all">Start</button>
+                            <button onclick="restart('${service.name}')" class="px-4 py-1.5 bg-indigo-600/75 hover:scale-105 rounded-lg text-[10px] font-black uppercase transition-all">Restart</button>
+                            <button onclick="stop('${service.name}')" class="px-4 py-1.5 bg-red-600/75 hover:scale-105 rounded-lg text-[10px] font-black uppercase transition-all">Stop</button>
+                        </div>
+                    </div>
+                    <div id="logs-${service.name}" class="flex-1 p-4 overflow-y-auto text-[11px] console custom-scrollbar space-y-1"></div>
+                </div>
+            `;
+            document.getElementById('services-grid').innerHTML += card;
+
+            socket.on(`log:${service.name}`, (log) => {
+                const logsElement = getLogsElement(service);
+                logsElement.innerHTML += getLogLine(log);
+                logsElement.scrollTop = logsElement.scrollHeight;
+            });
+
+            socket.on(`logs:${service.name}`, (logs) => {
+                const logsElement = getLogsElement(service);
+                let logsContent = '';
+
+                for (const log of logs)
+                    logsContent += getLogLine(log);
+
+                logsElement.innerHTML += logsContent;
+                logsElement.scrollTop = logsElement.scrollHeight;
+            });
+
+            socket.on(`status:${service.name}`, (status) => {
+                const logs = getLogsElement(service);
+                const dot = getDotElement(service);
+                if (status.toUpperCase() === 'RUNNING') logs.innerHTML = '';
+
+                service.status = status;
+                const color = service.status === "RUNNING" ? 'bg-green-500 shadow-[0_0_10px_green]'
+                    : (service.status === "CRASHED" ? 'bg-orange-500 shadow-[0_0_10px_orange]' : 'bg-red-500 shadow-[0_0_10px_red]')
+
+                dot.className = `w-4 h-4 rounded-full ${color}`;
+            });
+        });
+
+        function restart(name) {
+            socket.emit('restart-service', name);
+        }
+
+        function start(name) {
+            socket.emit('restart-service', name);
+        }
+
+        function stop(name) {
+            socket.emit('stop-service', name);
+        }
+    </script>
+</body>
+
+</html>
