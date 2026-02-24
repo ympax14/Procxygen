@@ -42,7 +42,7 @@ async function main() {
         const cmd = (process.platform === "win32" && target === "npm") ? "npm.cmd" : target;
 
         childCmd = spawn(cmd, args, {
-            stdio: 'inherit', // Les logs vont dans le pipe du Wrapper (lu par DRPM)
+            stdio: 'inherit', // Les logs vont dans le pipe du Wrapper (lu par Procxygen)
             shell: true // Ici le shell est OK car le Wrapper est le parent direct
         });
 

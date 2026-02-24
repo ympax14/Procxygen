@@ -5,7 +5,7 @@ import { Server } from 'socket.io';
 import path from 'path';
 import os from 'os';
 import { fileURLToPath } from 'url';
-import { config } from './drpm.config.js';
+import { config } from './procxygen.config.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
