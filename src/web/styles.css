@@ -1,0 +1,16 @@
+@import "tailwindcss";
+@tailwind utilities;
+
+.console {
+    font-family: 'Fira Code', monospace;
+    background: #020617;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #1e293b;
+    border-radius: 10px;
+}

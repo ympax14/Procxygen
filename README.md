@@ -1,2 +1,2 @@
-# DRPM-JS
-DeltaRise Process Manager - JavaScript
+# Procxygen
+Process Manager - JavaScript

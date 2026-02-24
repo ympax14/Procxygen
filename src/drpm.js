@@ -6,6 +6,9 @@ import path from 'path';
 import os from 'os';
 import { fileURLToPath } from 'url';
 import { config } from './drpm.config.js';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const wrapperPath = path.resolve(__dirname, './wrapper/wrapper.js');
@@ -27,7 +30,7 @@ const LogTypes = Object.freeze({
 
 class Log {
     constructor(content, type = LogTypes.INFO) {
-        this.date = new Date().toLocaleDateString();
+        this.date = new Date().toLocaleString({ hour: '2-digit', minute: '2-digit', second: '2-digit'  });
         this.content = content;
         this.type = type;
     }
@@ -36,9 +39,10 @@ class Log {
 class Service {
     constructor(cfg) {
         this.name = cfg.name;
-        this.script = cfg.script;
+        this.exec = cfg.run.exec;
+        this.args = cfg.run.args;
+        this.env = cfg.run.env;
         this.color = cfg.color;
-        this.env = cfg.env;
         this.child = null;
         this.restartCount = 0;
         this.logs = []; // Stockage temporaire des derniers logs
@@ -51,9 +55,13 @@ class Service {
 
         console.log(`[${this.name}] Lancement...`);
 
-        this.child = spawn('node', [wrapperPath, this.script], {
+        if (this.exec === 'node' && !this.args.includes(wrapperPath))
+            this.args.unshift(wrapperPath);
+
+        this.child = spawn(this.exec, this.args, {
             env: { ...process.env, ...this.env },
-            stdio: ['inherit', 'pipe', 'pipe', 'ipc']
+            stdio: ['inherit', 'pipe', 'pipe', 'ipc'],
+            shell: false // Désactivé pour ne pas casser le canal IPC
         });
 
         const handleLog = (data, type = LogTypes.INFO) => {
@@ -112,7 +120,10 @@ function initServices() {
 }
 
 function initExpressRoutes(app) {
-    app.get('/', (req, res) => res.sendFile(path.join(process.cwd(), './src/index.html')));
+    const webPath = path.resolve(__dirname, 'web');
+    console.log(webPath);
+    app.use(express.static(webPath));
+    app.get('/', (req, res) => res.sendFile(path.join(webPath, 'index.html')));
 }
 
 function initSocketListeners(io) {
@@ -152,27 +163,29 @@ function initServer() {
     return { app, httpServer, io };
 }
 
+function consoleDashboard() {
+    console.clear();
+    console.log(`=== 🛡️  PROCXYGENS  🛡️ ===`);
+    console.table(services.map(s => s.getStats()));
+
+    let loadTable = {};
+
+    os.loadavg().forEach((value, index) => {
+        let label = index === 0 ? '1 minute' : (index === 1 ? '5 minutes' : '15 minutes');
+        loadTable[index] = { last: label, load: value.toFixed(2) }
+    });
+
+    console.table(loadTable);
+    console.log(`Uptime ProcessManager ${process.uptime().toFixed(1)}s | Uptime Système: ${os.uptime().toFixed(1)}s`);
+}
+
 function main() {
     services = initServices();
     const { app, httpServer, io } = initServer();
 
     services.forEach(service => service.start());
 
-    setInterval(() => {
-        console.clear();
-        console.log(`=== 🛡️  DELTARISE PROCESS MANAGER ===`);
-        console.table(services.map(s => s.getStats()));
-
-        let loadTable = {};
-
-        os.loadavg().forEach((value, index) => {
-            let label = index === 0 ? '1 minute' : (index === 1 ? '5 minutes' : '15 minutes');
-            loadTable[index] = { last: label, load: value.toFixed(2) }
-        });
-
-        console.table(loadTable);
-        console.log(`Uptime ProcessManager ${process.uptime().toFixed(1)}s | Uptime Système: ${os.uptime().toFixed(1)}s`);
-    }, 10000);
+    setInterval(() => consoleDashboard(), 10000);
 }
 
 main();

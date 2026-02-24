@@ -3,15 +3,33 @@ export const config = {
     services: [
         {
             name: "BOT-DISCORD",
-            script: "./scripts/process1.js",
+            run: {
+                exec: "node",
+                args: ["./backend/discord/bot.js"],
+                env: {}
+            },
             color: "#5865F2",
-            env: { DEBUG: "bot:*" }
+            devOnly: false
         },
         {
-            name: "BACKEND-API",
-            script: "./scripts/process2.js",
+            name: "BACKEND",
+            run: {
+                exec: "node",
+                args: ["./backend/server.js"],
+                env: {}
+            },
             color: "#3b82f6",
-            env: { PORT: 5000, DB_URL: "..." }
+            devOnly: false,
+        },
+        {
+            name: "FRONTEND",
+            run: {
+                exec: "node",
+                args: ["npm", "run", "dev"],
+                env: {}
+            },
+            color: "#3b82f6",
+            devOnly: false
         }
     ]
 };
