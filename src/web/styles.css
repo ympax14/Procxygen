@@ -1,13 +1,40 @@
-@import "tailwindcss";
-@tailwind utilities;
+/* Empêche la page entière de scroller */
+html, body {
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+    margin: 0;
+}
+
+#active-service-container {
+    min-height: 0;
+}
+
+/* La console doit occuper tout l'espace restant sans déborder */
+.console-container {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0; /* CRUCIAL : permet au conteneur de rétrécir plus petit que son contenu */
+}
+
+/* Zone de logs */
+.logs-area {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0; /* CRUCIAL : force l'apparition du scroll au lieu d'agrandir le div */
+}
 
 .console {
     font-family: 'Fira Code', monospace;
-    background: #020617;
+    /* On garde flex-col pour que le contenu pousse correctement */
+    display: flex;
+    flex-direction: column;
 }
 
+/* Personnalisation du scroll pour la console */
 .custom-scrollbar::-webkit-scrollbar {
-    width: 4px;
+    width: 6px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {

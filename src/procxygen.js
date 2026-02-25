@@ -5,13 +5,52 @@ import { Server } from 'socket.io';
 import path from 'path';
 import os from 'os';
 import { fileURLToPath } from 'url';
-import { config } from './procxygen.config.js';
 import dotenv from 'dotenv';
+import { pathToFileURL } from 'url';
+import fs from 'fs';
 
 dotenv.config();
 
+const IS_DEV = process.env.DEV === "true";
+const STATUS = Object.freeze({
+    STOPPED: 'STOPPED',
+    RUNNING: 'RUNNING',
+    CRASHED: 'CRASHED'
+});
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const wrapperPath = path.resolve(__dirname, './wrapper/wrapper.js');
+
+const DEFAULT_CONFIG_PATH = path.resolve(__dirname, './procxygen.default.config.js');
+const WRAPPER_PATH = path.resolve(__dirname, './wrapper/wrapper.js');
+
+async function getDefaultConfig() {
+    if (fs.existsSync(DEFAULT_CONFIG_PATH) && fs.lstatSync(DEFAULT_CONFIG_PATH).isFile())
+        return import(pathToFileURL(DEFAULT_CONFIG_PATH).href);
+    else throw new Error('Default config not found !');
+}
+
+async function getConfig() {
+    let module;
+
+    if (IS_DEV) {
+        console.log('Procxygen is running as DEVELOPMENT mode !');
+        module = await import(pathToFileURL(DEFAULT_CONFIG_PATH).href);
+    } else {
+        const CONFIG_PATH = path.resolve(__dirname, './procxygen.config.js');
+        const EXISTS = await fs.existsSync(CONFIG_PATH);
+        const IS_FILE = EXISTS ? await fs.lstatSync(CONFIG_PATH).isFile() : false;
+
+        if (EXISTS && IS_FILE) {
+            module = await import(CONFIG_PATH);
+        } else {
+            module = await import(pathToFileURL(DEFAULT_CONFIG_PATH).href);
+        }
+    }
+
+    return module.default;
+}
+
+const config = await getConfig();
 
 const app = express();
 const httpServer = createServer(app);
@@ -46,17 +85,17 @@ class Service {
         this.child = null;
         this.restartCount = 0;
         this.logs = []; // Stockage temporaire des derniers logs
-        this.status = 'STOPPED';
+        this.status = STATUS.STOPPED;
     }
 
     start() {
-        if (this.child) this.child.send({ action: 'STOP', code: CustomCodes.STOP });
+        this.stop();
         if (this.logs.length > 0) this.logs = [];
 
         console.log(`[${this.name}] Lancement...`);
 
-        if (this.exec === 'node' && !this.args.includes(wrapperPath))
-            this.args.unshift(wrapperPath);
+        if (this.exec === 'node' && !this.args.includes(WRAPPER_PATH))
+            this.args.unshift(WRAPPER_PATH);
 
         this.child = spawn(this.exec, this.args, {
             env: { ...process.env, ...this.env },
@@ -71,25 +110,25 @@ class Service {
 
             if (this.logs.length > 100) this.logs.shift(); // Garder 100 lignes
 
-            io.emit(`log:${this.name}`, logInst); // Envoi au web
+            io.emit(`log-new`, {name: this.name, log: logInst}); // Envoi au web
         };
 
         this.child.stdout.on('data', (data) => handleLog(data, LogTypes.INFO));
         this.child.stderr.on('data', (data) => handleLog(data, LogTypes.ERROR));
-        this.child.on('spawn', () => this.updateStatus('RUNNING'));
+        this.child.on('spawn', () => this.updateStatus(STATUS.RUNNING));
         this.child.on('close', (code) => {
             if (code !== null && code !== 0 && code !== CustomCodes.STOP) {
-                this.updateStatus('CRASHED');
+                this.updateStatus(STATUS.CRASHED);
                 setTimeout(() => this.start(), 3000);
             } else {
-                this.updateStatus('STOPPED');
+                this.updateStatus(STATUS.STOPPED);
             }
         });
     }
 
     updateStatus(newStatus) {
         this.status = newStatus;
-        io.emit(`status:${this.name}`, this.status);
+        io.emit('status-update', { name: this.name, status: this.status });
     }
 
     stop(customCode = CustomCodes.STOP) {
@@ -116,7 +155,15 @@ class Service {
 }
 
 function initServices() {
-    return config.services.map(s => new Service(s));
+    const services = [];
+
+    for (const service of config.services) {
+        if (service.devOnly && !IS_DEV) continue;
+
+        services.push(new Service(service));
+    }
+
+    return services;
 }
 
 function initExpressRoutes(app) {
@@ -128,10 +175,12 @@ function initExpressRoutes(app) {
 
 function initSocketListeners(io) {
     io.on('connection', (socket) => {
-        services.forEach(service => {
+        socket.emit('services', services);
+
+        /*services.forEach(service => {
             service.updateStatus(service.status);
             socket.emit(`logs:${service.name}`, service.logs);
-        });
+        });*/
 
         socket.on('restart-service', (name) => {
             const target = services.find(i => i.name === name);
@@ -147,14 +196,17 @@ function initSocketListeners(io) {
             const target = services.find(i => i.name === name);
             if (target) target.start();
         });
+
+        socket.on('clear-logs', (name) => {
+            const target = services.find(i => i.name === name);
+            if (target) target.logs = [];
+        });
     });
 }
 
 function initServer() {
     initExpressRoutes(app);
     initSocketListeners(io);
-
-    // --- API & ROUTES ---
 
     httpServer.listen(config.port, () => {
         console.log(`🚀 DRPM Interface: http://localhost:${config.port}`);
