@@ -26,8 +26,10 @@ const DEFAULT_CONFIG_PATH = path.resolve(__dirname, './procxygen.default.config.
 const WRAPPER_PATH = path.resolve(__dirname, './wrapper/wrapper.js');
 
 async function getDefaultConfig() {
-    if (fs.existsSync(DEFAULT_CONFIG_PATH) && fs.lstatSync(DEFAULT_CONFIG_PATH).isFile())
-        return import(pathToFileURL(DEFAULT_CONFIG_PATH).href);
+    if (fs.existsSync(DEFAULT_CONFIG_PATH) && fs.lstatSync(DEFAULT_CONFIG_PATH).isFile()) {
+        const res = await import(pathToFileURL(DEFAULT_CONFIG_PATH).href);
+        return res.default;
+    }
     else throw new Error('Procxygen default config not found !');
 }
 
@@ -36,24 +38,32 @@ async function getConfig() {
 
     if (IS_DEV) {
         console.log('Procxygen is running as DEVELOPMENT mode !');
-        module = await import(pathToFileURL(DEFAULT_CONFIG_PATH).href);
+        const res = await import(pathToFileURL(DEFAULT_CONFIG_PATH).href);
+        module = res.default;
     } else {
         const CONFIG_PATH = path.resolve(__dirname, './procxygen.config.js');
         const EXISTS = await fs.existsSync(CONFIG_PATH);
         const IS_FILE = EXISTS ? await fs.lstatSync(CONFIG_PATH).isFile() : false;
 
         if (EXISTS && IS_FILE) {
-            module = await import(CONFIG_PATH);
+            console.log('config path: ', CONFIG_PATH);
+            const res = await import(pathToFileURL(CONFIG_PATH).href);
+            module = res.default;
         } else {
             console.warn('Procxygen config file not found ! Using default config file...');
-            module = await getDefaultConfig();
+            res = await getDefaultConfig();
+            module = res.default;
         }
     }
 
-    return module.default;
+    if (!module) {
+        throw new Error("La configuration chargée est vide. Vérifiez l'export default dans vos fichiers config.");
+    }
+
+    return module;
 }
 
-const config = await getConfig();
+let config;
 
 const app = express();
 const httpServer = createServer(app);
@@ -96,11 +106,14 @@ class Service {
         if (this.logs.length > 0) this.logs = [];
 
         console.log(`[${this.name}] Lancement...`);
+        
+        if (this.exec !== 'node' && !this.args.includes(this.exec))
+            this.args.unshift(this.exec);
 
-        if (this.exec === 'node' && !this.args.includes(WRAPPER_PATH))
+        if (!this.args.includes(WRAPPER_PATH))
             this.args.unshift(WRAPPER_PATH);
 
-        this.child = spawn(this.exec, this.args, {
+        this.child = spawn('node', this.args, {
             env: { ...process.env, ...this.env },
             stdio: ['inherit', 'pipe', 'pipe', 'ipc'],
             shell: false // Désactivé pour ne pas casser le canal IPC
@@ -135,7 +148,7 @@ class Service {
     }
 
     stop(customCode = CustomCodes.STOP) {
-        if (!this.child) return;
+        if (!this.child || this.child.disconnect) return;
 
         this.child.send({ action: 'STOP', code: customCode });
         this.child = null;
@@ -171,7 +184,6 @@ function initServices() {
 
 function initExpressRoutes(app) {
     const webPath = path.resolve(__dirname, 'web');
-    console.log(webPath);
     app.use(express.static(webPath));
     app.get('/', (req, res) => res.sendFile(path.join(webPath, 'index.html')));
 }
@@ -243,4 +255,7 @@ function main() {
     setInterval(() => consoleDashboard(), 10000);
 }
 
-main();
+(async () => {
+    config = await getConfig();
+    main();
+})();

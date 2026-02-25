@@ -1,4 +1,4 @@
-export const config = {
+const config = {
     port: 3000, // Port de l'interface web
     max_logs: 100,
     services: [
@@ -25,8 +25,8 @@ export const config = {
         {
             name: "FRONTEND",
             run: {
-                exec: "node",
-                args: ["npm", "run", "dev"],
+                exec: "npm",
+                args: ["run", "dev"],
                 env: {}
             },
             color: "#3b82f6",
@@ -34,3 +34,5 @@ export const config = {
         }
     ]
 };
+
+export default config;
