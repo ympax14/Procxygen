@@ -1,5 +1,6 @@
 export const config = {
     port: 3000, // Port de l'interface web
+    max_logs: 100,
     services: [
         {
             name: "BOT-DISCORD",

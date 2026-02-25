@@ -1,13 +1,15 @@
 import { spawn } from 'child_process';
+import os from 'os';
+import('loadavg-windows'); // Nécessaire pour loadAvg sur Windows car pas natif
+import fs from 'fs';
+import dotenv from 'dotenv';
+
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
+
 import path from 'path';
-import os from 'os';
-import { fileURLToPath } from 'url';
-import dotenv from 'dotenv';
-import { pathToFileURL } from 'url';
-import fs from 'fs';
+import { fileURLToPath, pathToFileURL } from 'url';
 
 dotenv.config();
 
@@ -26,7 +28,7 @@ const WRAPPER_PATH = path.resolve(__dirname, './wrapper/wrapper.js');
 async function getDefaultConfig() {
     if (fs.existsSync(DEFAULT_CONFIG_PATH) && fs.lstatSync(DEFAULT_CONFIG_PATH).isFile())
         return import(pathToFileURL(DEFAULT_CONFIG_PATH).href);
-    else throw new Error('Default config not found !');
+    else throw new Error('Procxygen default config not found !');
 }
 
 async function getConfig() {
@@ -43,7 +45,8 @@ async function getConfig() {
         if (EXISTS && IS_FILE) {
             module = await import(CONFIG_PATH);
         } else {
-            module = await import(pathToFileURL(DEFAULT_CONFIG_PATH).href);
+            console.warn('Procxygen config file not found ! Using default config file...');
+            module = await getDefaultConfig();
         }
     }
 
@@ -108,7 +111,7 @@ class Service {
             const logInst = new Log(line, type);
             this.logs.push(logInst);
 
-            if (this.logs.length > 100) this.logs.shift(); // Garder 100 lignes
+            if (this.logs.length > config.max_logs) this.logs.shift(); // Garder 100 lignes
 
             io.emit(`log-new`, {name: this.name, log: logInst}); // Envoi au web
         };
@@ -175,7 +178,7 @@ function initExpressRoutes(app) {
 
 function initSocketListeners(io) {
     io.on('connection', (socket) => {
-        socket.emit('services', services);
+        socket.emit('config', { services, max_logs: config.max_logs });
 
         /*services.forEach(service => {
             service.updateStatus(service.status);

@@ -1,4 +1,4 @@
-const MAX_LOGS = 100;
+let MAX_LOGS = 100;
 const STATUS = Object.freeze({
     STOPPED: 'STOPPED',
     RUNNING: 'RUNNING',
@@ -6,7 +6,7 @@ const STATUS = Object.freeze({
 });
 
 const socket = io();
-let services = [];
+let SERVICES = [];
 let activeService = null;
 
 // --- UTILS ---
@@ -51,7 +51,7 @@ function renderTabs() {
     const container = document.getElementById('tabs-container');
     container.innerHTML = '';
 
-    services.forEach(service => {
+    SERVICES.forEach(service => {
         const isActive = service.name === activeService;
         const btn = document.createElement('button');
         btn.onclick = () => switchTab(service.name);
@@ -66,7 +66,7 @@ function renderTabs() {
 
 function renderActiveService() {
     const container = document.getElementById('active-service-container');
-    const service = services.find(s => s.name === activeService);
+    const service = SERVICES.find(s => s.name === activeService);
     if (!service) return;
 
     // flex-col h-[calc(100vh-200px)] force la carte à tenir dans l'écran
@@ -112,18 +112,19 @@ function switchTab(name) {
 
 // --- SOCKETS (Définis UNE SEULE FOIS) ---
 
-socket.on('services', (_services) => {
+socket.on('config', ({ services, max_logs }) => {
     // Initialisation
-    services = _services.map(s => ({ ...s }));
-    if (services.length > 0) {
-        activeService = services[0].name;
+    MAX_LOGS = max_logs;
+    SERVICES = services.map(s => ({ ...s }));
+    if (SERVICES.length > 0) {
+        activeService = SERVICES[0].name;
         renderTabs();
         renderActiveService();
     }
 });
 
 socket.on('status-update', ({ name, status }) => {
-    const service = services.find(s => s.name === name);
+    const service = SERVICES.find(s => s.name === name);
     if (service) {
         service.status = status;
         // Update visuel sans re-render
@@ -142,7 +143,7 @@ socket.on('status-update', ({ name, status }) => {
 });
 
 socket.on('log-new', ({ name, log }) => {
-    const service = services.find(s => s.name === name);
+    const service = SERVICES.find(s => s.name === name);
     if (service) {
         service.logs.push(log);
         if (service.logs.length > MAX_LOGS) service.logs.shift();
@@ -160,26 +161,26 @@ socket.on('log-new', ({ name, log }) => {
 
 // --- ACTIONS ---
 function restart(name) {
-    const target = services.find(i => i.name === name);
+    const target = SERVICES.find(i => i.name === name);
     if (!target) return;
 
     socket.emit('restart-service', name);
 }
 
 function start(name) {
-    const target = services.find(i => i.name === name);
+    const target = SERVICES.find(i => i.name === name);
     if (!target || target.status != STATUS.STOPPED) return;
 
     socket.emit('start-service', name);
 }
 function stop(name) {
-    const target = services.find(i => i.name === name);
+    const target = SERVICES.find(i => i.name === name);
     if (!target || target.status != STATUS.RUNNING) return;
 
     socket.emit('stop-service', name);
 }
 function clearLogs(name) {
-    const service = services.find(s => s.name === name);
+    const service = SERVICES.find(s => s.name === name);
     if (service) service.logs = [];
     const el = getLogsElement();
     if (el) el.innerHTML = '';

@@ -5,6 +5,7 @@
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
     "http": "^0.0.1-security",
+    "loadavg-windows": "^1.1.1",
     "path": "^0.12.7",
     "socket.io": "^4.8.3"
   }
