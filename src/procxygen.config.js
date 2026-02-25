@@ -9,7 +9,7 @@ const config = {
                 args: ["./backend/discord/bot.js"],
                 env: {}
             },
-            color: "#5865F2",
+            color: "#a12bfb",
             devOnly: false
         },
         {
@@ -19,7 +19,7 @@ const config = {
                 args: ["./backend/server.js"],
                 env: {}
             },
-            color: "#3b82f6",
+            color: "#fb312b",
             devOnly: false,
         },
         {
@@ -29,7 +29,7 @@ const config = {
                 args: ["run", "dev"],
                 env: {}
             },
-            color: "#3b82f6",
+            color: "#2b69fb",
             devOnly: false
         }
     ]

@@ -112,6 +112,7 @@ class Service {
 
         if (!this.args.includes(WRAPPER_PATH))
             this.args.unshift(WRAPPER_PATH);
+        else this.restartCount++;
 
         this.child = spawn('node', this.args, {
             env: { ...process.env, ...this.env },
@@ -226,8 +227,6 @@ function initServer() {
     httpServer.listen(config.port, () => {
         console.log(`🚀 DRPM Interface: http://localhost:${config.port}`);
     });
-
-    return { app, httpServer, io };
 }
 
 function consoleDashboard() {
@@ -248,7 +247,7 @@ function consoleDashboard() {
 
 function main() {
     services = initServices();
-    const { app, httpServer, io } = initServer();
+    initServer();
 
     services.forEach(service => service.start());
 
