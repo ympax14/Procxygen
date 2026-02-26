@@ -1,3 +1,6 @@
+
+const socket = io();
+
 let MAX_LOGS = 100;
 const STATUS = Object.freeze({
     STOPPED: 'STOPPED',
@@ -5,8 +8,9 @@ const STATUS = Object.freeze({
     CRASHED: 'CRASHED'
 });
 
-const socket = io();
 let SERVICES = [];
+let MONITOR = {};
+
 let activeService = null;
 
 // --- UTILS ---
@@ -45,23 +49,45 @@ function getStatusColor(status, withShadow = false) {
     return `${colors[status] || 'bg-slate-500'} ${shadow}`;
 }
 
+function openMonitor() {
+    activeService = "__MONITOR__";
+    renderMonitor();
+}
+
 // --- CORE FUNCTIONS ---
 
 function renderTabs() {
     const container = document.getElementById('tabs-container');
-    container.innerHTML = '';
+    container.innerHTML = '<button onclick="openMonitor()" class="px-6 py-2 rounded-xl text-[10px] font-black uppercase bg-green-600/20 border-purple-500">Monitoring</button>';
 
     SERVICES.forEach(service => {
         const isActive = service.name === activeService;
         const btn = document.createElement('button');
         btn.onclick = () => switchTab(service.name);
         btn.className = `px-6 py-2 rounded-xl text-[10px] font-black uppercase transition-all border flex items-center gap-2 ${isActive
-                ? 'bg-blue-600/20 border-blue-500 text-white shadow-[0_0_15px_rgba(59,130,246,0.2)]'
+                ? 'bg-blue-600/20 border-blue-500 text-white'
                 : 'bg-[#0f172a] border-white/5 text-slate-500 hover:border-white/20'
             }`;
         btn.innerHTML = `<div id="dot-${service.name}" class="w-2 h-2 rounded-full ${getStatusColor(service.status)}"></div>${service.name}`;
         container.appendChild(btn);
     });
+}
+
+function renderMonitor() {
+    const container = document.getElementById("active-service-container");
+
+    container.innerHTML = `
+    <div class="flex flex-col gap-4 overflow-auto">
+        ${Object.values(MONITOR).map(s => `
+            <div class="bg-[#0f172a] p-4 rounded-xl">
+                <div class="font-bold text-white mb-2">${s.name}</div>
+                <div>CPU: ${s.cpu}%</div>
+                <div>RAM: ${s.memory} MB</div>
+                <div>PID: ${s.pid}</div>
+                <div>Uptime: ${s.uptime}s</div>
+            </div>
+        `).join("")}
+    </div>`;
 }
 
 function renderActiveService() {
@@ -159,6 +185,15 @@ socket.on('log-new', ({ name, log }) => {
     }
 });
 
+socket.on("monitor", data => {
+    data.forEach(s => {
+        MONITOR[s.name] = s;
+    });
+
+    if (activeService === "__MONITOR__")
+        renderMonitor();
+});
+
 // --- ACTIONS ---
 function restart(name) {
     const target = SERVICES.find(i => i.name === name);
@@ -175,6 +210,7 @@ function start(name) {
 }
 function stop(name) {
     const target = SERVICES.find(i => i.name === name);
+    console.log(target.status, STATUS.RUNNING, target.status == STATUS.RUNNING);
     if (!target || target.status != STATUS.RUNNING) return;
 
     socket.emit('stop-service', name);

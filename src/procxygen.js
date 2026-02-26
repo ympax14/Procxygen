@@ -1,6 +1,7 @@
 import { spawn } from 'child_process';
 import os from 'os';
 import('loadavg-windows'); // Nécessaire pour loadAvg sur Windows car pas natif
+import pidusage from 'pidusage';
 import fs from 'fs';
 import dotenv from 'dotenv';
 
@@ -13,7 +14,7 @@ import { fileURLToPath, pathToFileURL } from 'url';
 
 dotenv.config();
 
-const IS_DEV = process.env.DEV === "true";
+const IS_DEV = process.env.IS_PROD === "false";
 const STATUS = Object.freeze({
     STOPPED: 'STOPPED',
     RUNNING: 'RUNNING',
@@ -23,7 +24,6 @@ const STATUS = Object.freeze({
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const DEFAULT_CONFIG_PATH = path.resolve(__dirname, './procxygen.default.config.js');
-const WRAPPER_PATH = path.resolve(__dirname, './wrapper/wrapper.js');
 
 async function getDefaultConfig() {
     if (fs.existsSync(DEFAULT_CONFIG_PATH) && fs.lstatSync(DEFAULT_CONFIG_PATH).isFile()) {
@@ -70,10 +70,6 @@ const httpServer = createServer(app);
 const io = new Server(httpServer);
 let services = [];
 
-const CustomCodes = Object.freeze({
-    STOP: 88
-});
-
 const LogTypes = Object.freeze({
     WARN: 'WARN',
     ERROR: 'ERROR',
@@ -99,46 +95,39 @@ class Service {
         this.restartCount = 0;
         this.logs = []; // Stockage temporaire des derniers logs
         this.status = STATUS.STOPPED;
+        this.stopping = false;
     }
 
     start() {
-        this.stop();
+        if (this.child) return;
+        console.log(`[${this.name}] Lancement...`);
+
         if (this.logs.length > 0) this.logs = [];
 
-        console.log(`[${this.name}] Lancement...`);
-        
-        if (this.exec !== 'node' && !this.args.includes(this.exec))
-            this.args.unshift(this.exec);
-
-        if (!this.args.includes(WRAPPER_PATH))
-            this.args.unshift(WRAPPER_PATH);
-        else this.restartCount++;
-
-        this.child = spawn('node', this.args, {
+        this.child = spawn(this.exec, this.args, {
             env: { ...process.env, ...this.env },
-            stdio: ['inherit', 'pipe', 'pipe', 'ipc'],
+            stdio: ['inherit', 'pipe', 'pipe'],
+            detached: true,
             shell: false // Désactivé pour ne pas casser le canal IPC
         });
 
-        const handleLog = (data, type = LogTypes.INFO) => {
-            const line = data.toString().trim();
-            const logInst = new Log(line, type);
-            this.logs.push(logInst);
-
-            if (this.logs.length > config.max_logs) this.logs.shift(); // Garder 100 lignes
-
-            io.emit(`log-new`, {name: this.name, log: logInst}); // Envoi au web
-        };
-
-        this.child.stdout.on('data', (data) => handleLog(data, LogTypes.INFO));
-        this.child.stderr.on('data', (data) => handleLog(data, LogTypes.ERROR));
-        this.child.on('spawn', () => this.updateStatus(STATUS.RUNNING));
+        this.child.stdout.on('data', (data) => this.handleLog(data, LogTypes.INFO));
+        this.child.stderr.on('data', (data) => this.handleLog(data, LogTypes.ERROR));
+        this.child.on('spawn', () => {
+            this.updateStatus(STATUS.RUNNING)
+            console.log(`[${this.name}] Lancé !`);
+        });
         this.child.on('close', (code) => {
-            if (code !== null && code !== 0 && code !== CustomCodes.STOP) {
-                this.updateStatus(STATUS.CRASHED);
-                setTimeout(() => this.start(), 3000);
-            } else {
+            this.child = null;
+
+            if (this.stopping || code === null || code === 0) {
+                this.stopping = false;
                 this.updateStatus(STATUS.STOPPED);
+                console.log(`[${this.name}] Arrêté...`);
+            } else {
+                this.updateStatus(STATUS.CRASHED);
+                console.log(`[${this.name}] Crash avec le code ${code}. Tentative de redémarrage dans 3 secondes...`);
+                setTimeout(() => this.start(), 3000);
             }
         });
     }
@@ -148,16 +137,37 @@ class Service {
         io.emit('status-update', { name: this.name, status: this.status });
     }
 
-    stop(customCode = CustomCodes.STOP) {
-        if (!this.child || this.child.disconnect) return;
+    stop() {
+        if (this.stopping || !this.child) return;
+        this.stopping = true;
 
-        this.child.send({ action: 'STOP', code: customCode });
-        this.child = null;
+        const pid = this.child.pid;
+        console.log(`[PROCXYGEN] Arrêt du processus ${this.name} (#${pid})`);
+
+        this.killProcessTree(pid);
+    }
+
+    killProcessTree(pid) {
+        if (process.platform === "win32") {
+            spawn("taskkill", ["/pid", pid, "/T", "/F"]);
+        } else {
+            try {
+                process.kill(-pid, "SIGTERM");
+            } catch {}
+
+            setTimeout(() => {
+                try {
+                    process.kill(-pid, "SIGKILL");
+                } catch {}
+            }, 5000);
+        }
     }
 
     restart() {
         this.stop();
-        setTimeout(() => this.start(), 1000);
+        setTimeout(() => {
+            this.start();
+        }, 1000);
     }
 
     getStats() {
@@ -169,6 +179,16 @@ class Service {
             pid: this.child?.pid
         };
     }
+
+    handleLog(data, type = LogTypes.INFO) {
+        const line = data.toString().trim();
+        const log = new Log(line, type);
+        this.logs.push(log);
+
+        if (this.logs.length > config.max_logs) this.logs.shift(); // Garder 100 lignes
+
+        io.emit(`log-new`, { name: this.name, log: log }); // Envoi au web
+    };
 }
 
 function initServices() {
@@ -230,28 +250,56 @@ function initServer() {
 }
 
 function consoleDashboard() {
-    console.clear();
-    console.log(`=== 🛡️  PROCXYGENS  🛡️ ===`);
-    console.table(services.map(s => s.getStats()));
+    setInterval(async () => {
+        console.clear();
+        console.log(`=== 🛡️  PROCXYGENS  🛡️ ===`);
+        console.table(services.map(s => s.getStats()));
 
-    let loadTable = {};
+        let loadTable = {};
 
-    os.loadavg().forEach((value, index) => {
-        let label = index === 0 ? '1 minute' : (index === 1 ? '5 minutes' : '15 minutes');
-        loadTable[index] = { last: label, load: value.toFixed(2) }
-    });
+        os.loadavg().forEach((value, index) => {
+            let label = index === 0 ? '1 minute' : (index === 1 ? '5 minutes' : '15 minutes');
+            loadTable[index] = { last: label, load: value.toFixed(2) }
+        });
 
-    console.table(loadTable);
-    console.log(`Uptime ProcessManager ${process.uptime().toFixed(1)}s | Uptime Système: ${os.uptime().toFixed(1)}s`);
+        console.table(loadTable);
+        console.log(`Uptime ProcessManager ${process.uptime().toFixed(1)}s | Uptime Système: ${os.uptime().toFixed(1)}s`);
+    }, 10000);
+}
+
+function startMonitoring() {
+    setInterval(async () => {
+        const stats = [];
+
+        for (const service of services) {
+            if (!service.child?.pid) continue;
+
+            try {
+                const s = await pidusage(service.child.pid);
+
+                stats.push({
+                    name: service.name,
+                    cpu: s.cpu.toFixed(2),
+                    memory: (s.memory / 1024 / 1024).toFixed(2),
+                    uptime: (s.elapsed / 1000).toFixed(0),
+                    pid: service.child.pid
+                });
+
+            } catch(err) {
+                console.log(err);
+            }
+        }
+
+        io.emit("monitor", stats);
+    }, 1000);
 }
 
 function main() {
-    services = initServices();
     initServer();
+    services = initServices();
+    startMonitoring();
 
     services.forEach(service => service.start());
-
-    setInterval(() => consoleDashboard(), 10000);
 }
 
 (async () => {

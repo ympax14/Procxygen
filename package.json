@@ -7,6 +7,7 @@
     "http": "^0.0.1-security",
     "loadavg-windows": "^1.1.1",
     "path": "^0.12.7",
+    "pidusage": "^4.0.1",
     "socket.io": "^4.8.3"
   }
 }

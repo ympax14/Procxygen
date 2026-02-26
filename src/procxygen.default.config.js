@@ -1,5 +1,5 @@
 const config = {
-    port: 3000, // Port de l'interface web
+    port: 3009, // Port de l'interface web
     services: [
         {
             name: "DUMMY-PROCESS-1",
